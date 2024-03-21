@@ -11,9 +11,18 @@ String ssid, pass;
 String newSsid, newPass;
 unsigned long ssidAddr, passAddr;
 
+AsyncWebServer server(80); 
+AsyncWebSocket ws("/ws"); 
+File indexPage;  
+
 void setup() {
   Serial.begin(115200);
 
+  // littleFS 
+  if (!LittleFS.begin()) {
+    Serial.println("An error occured while mounting LittleFS.");
+  }
+  
   EEPROM.begin(sizeof(char) * 160);
   ssidAddr = START_ADDR;
   passAddr = ssidAddr + sizeof(char) * 64;
@@ -29,6 +38,21 @@ ssid not available - 1
 wrong password, disconnected - 6
 connected - 3
 initializing - 7
+
+ESP starts up, loading wifi credentials from the EEPROM. 
+If the ESP connects successfully, 
+  proceed with the rest of the application.
+Else, 
+  Open an open WiFi AP 
+  serve the WiFi configuration webpage
+  User loads the webpage on a device, enters the WiFi credentials, then submits it.
+  Upon credentials submission, 
+    save the credentials to the EEPROM
+    shut off the WiFi AP 
+    turn on the WiFi STA 
+    attempt to reconnect to the WiFi 
+    If the ESP connects successfully, 
+      proceed with the rest of the application.
 */
 
   Serial.println("Attempting to connect to WiFi:");
@@ -38,9 +62,27 @@ initializing - 7
     Serial.print("not connected: ");
     Serial.println(WiFi.status());
     delay(500);
+    switch (WiFi.status())
+    {
+    case WL_CONNECTED:
+    case WL_IDLE_STATUS:
+    case 7:
+      break;
+    
+    default:
+      WiFi.softAP("ESP8266_wifi_config");
+      Serial.println("Starting wifi SoftAP");
+      Serial.print("IP Address: ");
+      Serial.println(WiFi.softAPIP());
+      server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(LittleFS, "/wifi.html", String(), false);});
+      server.begin();
+    }
   }
   Serial.print("Connected: ");
   Serial.println(WiFi.status());
+
+  // testing
   // EEPROM.put(ssidAddr, ssid);
   // EEPROM.put(passAddr, pass);
   // Serial.print("ssid=");
@@ -56,6 +98,9 @@ initializing - 7
   // Serial.print(" pass=");
   // Serial.println(newPass);
   // Serial.println("loaded strings from EEPROM");
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(LittleFS, "/index.html", String(), false);});
+  server.begin();
 }
 
 void loop() {
