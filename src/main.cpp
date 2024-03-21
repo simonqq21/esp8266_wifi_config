@@ -8,12 +8,16 @@
 #define START_ADDR 0x0
 
 String ssid, pass;
+int ipIndex;
 String newSsid, newPass;
 unsigned long ssidAddr, passAddr;
 
 AsyncWebServer server(80); 
 AsyncWebSocket ws("/ws"); 
 File indexPage;  
+
+IPAddress localIP; 
+IPAddress apIP;
 
 void setup() {
   Serial.begin(115200);
@@ -27,12 +31,16 @@ void setup() {
   ssidAddr = START_ADDR;
   passAddr = ssidAddr + sizeof(char) * 64;
 
-  ssid = String("wifiSSID");
-  pass = String("password1234");
+  // ssid = String("wifiSSID");
+  // pass = String("password1234");
 
-  ssid = String("QUE-STARLINK");
-  pass = String("Quefamily01259");
+  // ssid = String("QUE-STARLINK");
+  // pass = String("Quefamily01250");
 
+  EEPROM.get(ssidAddr, ssid);
+  EEPROM.get(passAddr, pass);
+  Serial.println(ssid);
+  Serial.println(pass);
 /*
 ssid not available - 1
 wrong password, disconnected - 6
@@ -70,34 +78,43 @@ Else,
       break;
     
     default:
-      WiFi.softAP("ESP8266_wifi_config");
-      Serial.println("Starting wifi SoftAP");
+      apIP = WiFi.softAPIP();
       Serial.print("IP Address: ");
-      Serial.println(WiFi.softAPIP());
-      server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+      Serial.println(apIP[0]);
+      if (apIP[0] < 1) {
+        WiFi.softAP("ESP8266_wifi_config");
+        Serial.println("Starting wifi SoftAP");
+        server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(LittleFS, "/wifi.html", String(), false);});
-      server.begin();
+        server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
+          // upon submission of wifi credentials, grab the values, turn of the WiFi 
+          // hotspot, then attempt to reconnect to the wifi router.
+          ssid = request->arg("ssid");
+          pass = request->arg("pass");
+          ipIndex = request->arg("IPindex").toInt();
+          Serial.println("received parameters");
+          Serial.println(ssid);
+          Serial.println(pass);
+          Serial.println(ipIndex);
+          // save values to EEPROM 
+          EEPROM.put(ssidAddr, ssid);
+          EEPROM.put(passAddr, pass);
+          // turn off wifi hotspot
+          WiFi.softAPdisconnect(true);
+          Serial.println("stopped softAP");
+          WiFi.begin(ssid, pass);
+          Serial.println("started WiFi");
+          localIP = WiFi.localIP();
+          Serial.println(localIP);
+        });
+        server.begin();
+      }
     }
+
   }
   Serial.print("Connected: ");
   Serial.println(WiFi.status());
 
-  // testing
-  // EEPROM.put(ssidAddr, ssid);
-  // EEPROM.put(passAddr, pass);
-  // Serial.print("ssid=");
-  // Serial.print(ssid);
-  // Serial.print(" pass=");
-  // Serial.println(pass);
-  // Serial.println("saved strings to EEPROM");
-  // delay(1000);
-  // EEPROM.get(ssidAddr, newSsid);
-  // EEPROM.get(passAddr, newPass);
-  // Serial.print("ssid=");
-  // Serial.print(newSsid);
-  // Serial.print(" pass=");
-  // Serial.println(newPass);
-  // Serial.println("loaded strings from EEPROM");
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(LittleFS, "/index.html", String(), false);});
   server.begin();

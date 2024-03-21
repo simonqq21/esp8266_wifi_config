@@ -6,12 +6,15 @@
 </head>
 <body>
 <h1>ESP8266 WiFi Configuration</h1>
-<form action="">
+<form action="/wifi/" method="post">
     <label for="ssid">WiFi SSID: </label>
     <input name="ssid" id="ssid" type="text">
     <br>
     <label for="pass">WiFi password: </label>
-    <input name="pass" id="pass" type="text">
+    <input name="pass" id="pass" type="password">
+    <br>
+    <label for="IPIndex">IP Address index: </label>
+    <input name="IPIndex" id="IPIndex" type="number" min="2" max="254">
     <br>
     <input type="submit" value="Connect">
 </form>
