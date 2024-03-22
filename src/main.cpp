@@ -26,7 +26,7 @@ IPAddress gateway;
 IPAddress subnet(255,255,255,0);
 IPAddress dns(8,8,8,8);
 
-AsyncWebHandler indexHandler, wifiHandler; 
+AsyncWebHandler indexHandler, wifiGetHandler, wifiPostHandler; 
 unsigned long printDelay = 1000;
 unsigned long lastTimePrinted; 
 
@@ -72,6 +72,30 @@ void readWiFiEEPROM() {
   Serial.print("ipIndex=");
   Serial.println(ipIndex);
   Serial.println("EEPROM read!");
+}
+
+// upon submission of wifi credentials, grab the values, turn of the WiFi 
+// hotspot, then attempt to reconnect to the wifi router.
+void saveWiFi(AsyncWebServerRequest *request) {
+  ssid = request->arg("ssid");
+  pass = request->arg("pass");
+  ipIndex = request->arg("IPIndex").toInt();
+  Serial.println("received parameters");
+  Serial.println(ssid);
+  Serial.println(pass);
+  Serial.println(ipIndex);
+  // save values to EEPROM 
+  EEPROM.put(checkAddr, 1024);
+  writeStrToEEPROM(ssidAddr, ssid);
+  writeStrToEEPROM(passAddr, pass);
+  EEPROM.put(ipIndexAddr, ipIndex);
+  EEPROM.commit();
+  // turn off wifi hotspot
+  WiFi.softAPdisconnect(true);
+  apIP[0] = 0;
+  Serial.println("stopped softAP");
+  WiFi.begin(ssid, pass);
+  Serial.println("started WiFi");
 }
 
 void setup() {
@@ -163,28 +187,8 @@ Else,
 
           indexHandler = server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
           request->send(LittleFS, "/wifi.html", String(), false);});
-          wifiHandler = server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
-            // upon submission of wifi credentials, grab the values, turn of the WiFi 
-            // hotspot, then attempt to reconnect to the wifi router.
-            ssid = request->arg("ssid");
-            pass = request->arg("pass");
-            ipIndex = request->arg("IPIndex").toInt();
-            Serial.println("received parameters");
-            Serial.println(ssid);
-            Serial.println(pass);
-            Serial.println(ipIndex);
-            // save values to EEPROM 
-            EEPROM.put(checkAddr, 1024);
-            writeStrToEEPROM(ssidAddr, ssid);
-            writeStrToEEPROM(passAddr, pass);
-            EEPROM.put(ipIndexAddr, ipIndex);
-            EEPROM.commit();
-            // turn off wifi hotspot
-            WiFi.softAPdisconnect(true);
-            apIP[0] = 0;
-            Serial.println("stopped softAP");
-            WiFi.begin(ssid, pass);
-            Serial.println("started WiFi");
+          wifiPostHandler = server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
+            saveWiFi(request);
           });
           server.begin();
       }
@@ -214,6 +218,11 @@ Else,
   server.reset();
   indexHandler = server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(LittleFS, "/index.html", String(), false);});
+  // wifiGetHandler = server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
+  //   request->send(LittleFS, "/wifi.html", String(), false);});
+  // wifiPostHandler = server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
+  //   saveWiFi(request);
+  });
   server.begin();
 }
 
