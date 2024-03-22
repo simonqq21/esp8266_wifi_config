@@ -22,6 +22,9 @@ File indexPage;
 IPAddress localIP; 
 IPAddress apIP;
 
+
+AsyncWebHandler indexHandler, wifiHandler; 
+
 // void writeStrToEEPROM(unsigned int addr, String str) {
 //   int len = str.length(); 
 //   Serial.print("len=");
@@ -70,7 +73,8 @@ void setup() {
   // EEPROM.put(checkAddr, 0);
   // EEPROM.commit();
   EEPROM.get(checkAddr, checkNum);
-  Serial.print(checkNum);
+  Serial.print(checkNum); 
+  checkNum = 0;
   if (checkNum != 1024) {
     ssid = "wifi";
     pass = "password";
@@ -88,7 +92,7 @@ void setup() {
     EEPROM.get(passAddr, newPass);
     EEPROM.get(ssidAddr, ssid);
     EEPROM.get(passAddr, pass); 
-    
+
     Serial.print("ssid=");
     Serial.println(newSsid);
     Serial.print("pass=");
@@ -135,66 +139,59 @@ Else,
     Serial.print("not connected: ");
     Serial.println(WiFi.status());
     delay(500);
-  //   switch (WiFi.status())
-  //   {
-  //   case WL_IDLE_STATUS:
-  //     ssid = String("wifiSSID");
-  //     pass = String("password1234");
-  //     Serial.println("set ssid and pass to default values");
-  //     EEPROM.put(ssidAddr, ssid);
-  //     EEPROM.put(passAddr, pass);
-  //     EEPROM.get(ssidAddr, ssid);
-  //     EEPROM.get(passAddr, pass);
-  //     Serial.println("done");
-  //     Serial.println(ssid);
-  //     Serial.println(pass);
-  //     WiFi.begin(ssid, pass);
-  //     break;
-  //   case WL_CONNECTED:
-  //   case 7:
-  //     break;
+    switch (WiFi.status())
+    {
+    case WL_IDLE_STATUS:
+    case WL_CONNECTED:
+    case 7:
+      break;
     
-  //   default:
-  //     apIP = WiFi.softAPIP();
-  //     Serial.print("IP Address: ");
-  //     Serial.println(apIP[0]);
-  //     if (apIP[0] < 1) {
-  //       WiFi.softAP("ESP8266_wifi_config");
-  //       Serial.println("Starting wifi SoftAP");
-  //       server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-  //       request->send(LittleFS, "/wifi.html", String(), false);});
-  //       server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
-  //         // upon submission of wifi credentials, grab the values, turn of the WiFi 
-  //         // hotspot, then attempt to reconnect to the wifi router.
-  //         ssid = request->arg("ssid");
-  //         pass = request->arg("pass");
-  //         ipIndex = request->arg("IPindex").toInt();
-  //         Serial.println("received parameters");
-  //         Serial.println(ssid);
-  //         Serial.println(pass);
-  //         Serial.println(ipIndex);
-  //         // save values to EEPROM 
-  //         EEPROM.put(ssidAddr, ssid);
-  //         EEPROM.put(passAddr, pass);
-  //         // turn off wifi hotspot
-  //         WiFi.softAPdisconnect(true);
-  //         Serial.println("stopped softAP");
-  //         WiFi.begin(ssid, pass);
-  //         Serial.println("started WiFi");
-  //         localIP = WiFi.localIP();
-  //         Serial.println(localIP);
-  //       });
-  //       server.begin();
-  //     }
-    // }
+    default:
+      apIP = WiFi.softAPIP();
+      Serial.print("IP Address: ");
+      Serial.println(apIP[0]);
+      if (apIP[0] < 1) {
+        WiFi.softAP("ESP8266_wifi_config");
+        Serial.println("Starting wifi SoftAP");
+
+        indexHandler = server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(LittleFS, "/wifi.html", String(), false);});
+        wifiHandler = server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
+          // upon submission of wifi credentials, grab the values, turn of the WiFi 
+          // hotspot, then attempt to reconnect to the wifi router.
+          ssid = request->arg("ssid");
+          pass = request->arg("pass");
+          ipIndex = request->arg("IPIndex").toInt();
+          Serial.println("received parameters");
+          Serial.println(ssid);
+          Serial.println(pass);
+          Serial.println(ipIndex);
+          // save values to EEPROM 
+          EEPROM.put(ssidAddr, ssid);
+          EEPROM.put(passAddr, pass);
+          EEPROM.commit();
+          // turn off wifi hotspot
+          WiFi.softAPdisconnect(true);
+          Serial.println("stopped softAP");
+          WiFi.begin(ssid, pass);
+          Serial.println("started WiFi");
+          localIP = WiFi.localIP();
+          Serial.println(localIP);
+        });
+
+        server.begin();
+      }
+    }
   }
 
-  // Serial.print("Connected: ");
-  // Serial.println(WiFi.status());
-
-  // server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-  //   request->send(LittleFS, "/index.html", String(), false);});
-  // server.begin();
+  Serial.print("Connected: ");
+  Serial.println(WiFi.status());
+  server.removeHandler(&indexHandler);
+  server.removeHandler(&wifiHandler);
+  server.reset();
+  indexHandler = server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(LittleFS, "/index.html", String(), false);});
+  server.begin();
 }
 
 void loop() {
