@@ -10,10 +10,11 @@
 // read from the EEPROM. If the EEPROM contents are valid, it must be 1024.
 // If it is any other value, EEPROM contents are invalid.
 int checkNum; 
+bool wifiSubmitted = false; 
 String ssid, pass;
-int ipIndex;
+byte ipIndex;
 String newSsid, newPass;
-unsigned long checkAddr, ssidAddr, passAddr;
+unsigned long checkAddr, ssidAddr, passAddr, ipIndexAddr;
 
 AsyncWebServer server(80); 
 AsyncWebSocket ws("/ws"); 
@@ -21,35 +22,13 @@ File indexPage;
 
 IPAddress localIP; 
 IPAddress apIP;
-
+IPAddress gateway;
+IPAddress subnet(255,255,255,0);
+IPAddress dns(8,8,8,8);
 
 AsyncWebHandler indexHandler, wifiHandler; 
-
-// void writeStrToEEPROM(unsigned int addr, String str) {
-//   int len = str.length(); 
-//   Serial.print("len=");
-//   Serial.println(len);
-//   for (int i=0;i<len;i++) {
-//     EEPROM.write(addr+i, str[i]);
-//   }
-//   EEPROM.write(addr+len, 0);
-// }
-
-// void readStrFromEEPROM(unsigned int addr, String str) {
-//   byte ch;
-//   int i = 0;
-//   do
-//   {
-//     ch = EEPROM.read(addr+i);
-//     Serial.println(ch);
-//     str.setCharAt(addr+i, ch);
-//     i++;
-//   } while (ch);
-//   Serial.print("str in funcion = ");
-//   Serial.println(str);
-// }
-
-
+unsigned long printDelay = 1000;
+unsigned long lastTimePrinted; 
 
 void setup() {
   Serial.begin(115200);
@@ -60,11 +39,11 @@ void setup() {
   }
   
   // initialize EEPROM
-  EEPROM.begin(sizeof(int) + sizeof(char) * 160);
+  EEPROM.begin(sizeof(int) + sizeof(char) * 160 + sizeof(byte));
   checkAddr = START_ADDR;
-  ssidAddr = checkAddr + sizeof(char) * 64;
+  ssidAddr = checkAddr + sizeof(int);
   passAddr = ssidAddr + sizeof(char) * 64;
-
+  ipIndexAddr = passAddr + sizeof(char) * 64;
   /*
   read from the EEPROM. If the EEPROM contents are valid, it must be 1024.
   If it is any other value, EEPROM contents are invalid, then the EEPROM 
@@ -81,6 +60,7 @@ void setup() {
     EEPROM.put(checkAddr, 1024);
     EEPROM.put(ssidAddr, ssid);
     EEPROM.put(passAddr, pass);
+    EEPROM.put(ipIndexAddr, 2);
     EEPROM.commit();
 
     Serial.print("ssid=");
@@ -92,7 +72,7 @@ void setup() {
     EEPROM.get(passAddr, newPass);
     EEPROM.get(ssidAddr, ssid);
     EEPROM.get(passAddr, pass); 
-
+    
     Serial.print("ssid=");
     Serial.println(newSsid);
     Serial.print("pass=");
@@ -102,11 +82,14 @@ void setup() {
   else {
     EEPROM.get(ssidAddr, ssid);
     EEPROM.get(passAddr, pass); 
+    EEPROM.get(ipIndexAddr, ipIndex);
 
     Serial.print("ssid=");
     Serial.println(ssid);
     Serial.print("pass=");
     Serial.println(pass);
+    Serial.print("ipIndex=");
+    Serial.println(ipIndex);
     Serial.println("EEPROM read!");
   }
 
@@ -136,9 +119,14 @@ Else,
   WiFi.begin(ssid, pass);
 
   while (WiFi.status() != WL_CONNECTED) {
-    Serial.print("not connected: ");
-    Serial.println(WiFi.status());
-    delay(500);
+    if (millis() - lastTimePrinted > printDelay) {
+      lastTimePrinted = millis(); 
+      Serial.print("not connected: ");
+      Serial.println(WiFi.status());
+      Serial.print("ip=");
+      Serial.println(apIP[0]);
+    }
+    yield();
     switch (WiFi.status())
     {
     case WL_IDLE_STATUS:
@@ -147,12 +135,12 @@ Else,
       break;
     
     default:
-      apIP = WiFi.softAPIP();
-      Serial.print("IP Address: ");
-      Serial.println(apIP[0]);
       if (apIP[0] < 1) {
         WiFi.softAP("ESP8266_wifi_config");
         Serial.println("Starting wifi SoftAP");
+        apIP = WiFi.softAPIP();
+        Serial.print("IP Address: ");
+        Serial.println(apIP[0]);
 
         indexHandler = server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(LittleFS, "/wifi.html", String(), false);});
@@ -169,14 +157,14 @@ Else,
           // save values to EEPROM 
           EEPROM.put(ssidAddr, ssid);
           EEPROM.put(passAddr, pass);
+          EEPROM.put(ipIndexAddr, ipIndex);
           EEPROM.commit();
           // turn off wifi hotspot
           WiFi.softAPdisconnect(true);
+          apIP[0] = 0;
           Serial.println("stopped softAP");
           WiFi.begin(ssid, pass);
           Serial.println("started WiFi");
-          localIP = WiFi.localIP();
-          Serial.println(localIP);
         });
 
         server.begin();
@@ -186,8 +174,18 @@ Else,
 
   Serial.print("Connected: ");
   Serial.println(WiFi.status());
-  server.removeHandler(&indexHandler);
-  server.removeHandler(&wifiHandler);
+  localIP = WiFi.localIP();
+  Serial.println(localIP);
+  localIP[3] = ipIndex;
+  gateway = localIP;
+  gateway[3] = 1;
+  Serial.print("gateway=");
+  Serial.println(gateway);
+  WiFi.config(localIP, gateway, subnet);
+  Serial.println(localIP);
+
+  // server.removeHandler(&indexHandler);
+  // server.removeHandler(&wifiHandler);
   server.reset();
   indexHandler = server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(LittleFS, "/index.html", String(), false);});
@@ -200,6 +198,32 @@ void loop() {
 
 
 /*
+
+void writeStrToEEPROM(unsigned int addr, String str) {
+  int len = str.length(); 
+  Serial.print("len=");
+  Serial.println(len);
+  for (int i=0;i<len;i++) {
+    EEPROM.write(addr+i, str[i]);
+  }
+  EEPROM.write(addr+len, 0);
+}
+
+void readStrFromEEPROM(unsigned int addr, String str) {
+  byte ch;
+  int i = 0;
+  do
+  {
+    ch = EEPROM.read(addr+i);
+    Serial.println(ch);
+    str.setCharAt(addr+i, ch);
+    i++;
+  } while (ch);
+  Serial.print("str in funcion = ");
+  Serial.println(str);
+}
+
+
 void f1(String *str) {
   // *str = "username2";
   // modifying an Arduino C++ string through pass by reference
