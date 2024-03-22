@@ -30,6 +30,73 @@ AsyncWebHandler indexHandler, wifiHandler;
 unsigned long printDelay = 1000;
 unsigned long lastTimePrinted; 
 
+void writeStrToEEPROM(unsigned int addr, String str) {
+  int len = str.length(); 
+  const char * c_str = str.c_str();
+  Serial.print("len=");
+  Serial.println(len);
+  for (int i=0;i<len;i++) {
+    EEPROM.write(addr+i, c_str[i]);
+    // Serial.println(c_str[i]);
+  }
+  EEPROM.write(addr+len, 0);
+  EEPROM.commit();
+}
+
+void readStrFromEEPROM(unsigned int addr, String *str) {
+  byte ch;
+  int i = 0;
+  *str = "";
+  do
+  {
+    ch = EEPROM.read(addr+i);
+    // Serial.println(ch);
+    if (ch)
+      *str += (char) ch;
+    i++;
+  } while (ch);
+}
+
+void resetEEPROM() {
+  ssid = "wifi";
+  pass = "password";
+  EEPROM.put(checkAddr, 1024);
+  writeStrToEEPROM(ssidAddr, ssid);
+  writeStrToEEPROM(passAddr, pass);
+  EEPROM.put(ipIndexAddr, 2);
+  EEPROM.commit();
+
+  Serial.print("ssid=");
+  Serial.println(newSsid);
+  Serial.print("pass=");
+  Serial.println(newPass);
+
+  readStrFromEEPROM(ssidAddr, &newSsid);
+  readStrFromEEPROM(passAddr, &newPass);
+  readStrFromEEPROM(ssidAddr, &ssid);
+  readStrFromEEPROM(passAddr, &pass);
+  
+  Serial.print("ssid=");
+  Serial.println(newSsid);
+  Serial.print("pass=");
+  Serial.println(newPass);
+  Serial.println("EEPROM initialized!");
+}
+
+void readEEPROM() {
+  readStrFromEEPROM(ssidAddr, &ssid);
+  readStrFromEEPROM(passAddr, &pass);
+  EEPROM.get(ipIndexAddr, ipIndex);
+
+  Serial.print("ssid=");
+  Serial.println(ssid);
+  Serial.print("pass=");
+  Serial.println(pass);
+  Serial.print("ipIndex=");
+  Serial.println(ipIndex);
+  Serial.println("EEPROM read!");
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -39,11 +106,24 @@ void setup() {
   }
   
   // initialize EEPROM
-  EEPROM.begin(sizeof(int) + sizeof(char) * 160 + sizeof(byte));
+  EEPROM.begin(sizeof(int) + sizeof(char) * 80 + sizeof(byte));
   checkAddr = START_ADDR;
   ssidAddr = checkAddr + sizeof(int);
-  passAddr = ssidAddr + sizeof(char) * 64;
-  ipIndexAddr = passAddr + sizeof(char) * 64;
+  passAddr = ssidAddr + sizeof(char) * 32;
+  ipIndexAddr = passAddr + sizeof(char) * 32;
+
+  // ssid = "username1";
+  // pass = "password1";
+  // Serial.println("Writing to EEPROM");
+  // writeStrToEEPROM(ssidAddr, ssid);
+  // Serial.print("ssid=");
+  // Serial.println(newSsid); 
+  // Serial.println("Reading from EEPROM");
+  // readStrFromEEPROM(ssidAddr, &newSsid);
+  // Serial.print("ssid=");
+  // Serial.println(newSsid);
+  // Serial.println(ssid == newSsid);
+
   /*
   read from the EEPROM. If the EEPROM contents are valid, it must be 1024.
   If it is any other value, EEPROM contents are invalid, then the EEPROM 
@@ -53,44 +133,12 @@ void setup() {
   // EEPROM.commit();
   EEPROM.get(checkAddr, checkNum);
   Serial.print(checkNum); 
-  checkNum = 0;
+  // checkNum = 0;
   if (checkNum != 1024) {
-    ssid = "wifi";
-    pass = "password";
-    EEPROM.put(checkAddr, 1024);
-    EEPROM.put(ssidAddr, ssid);
-    EEPROM.put(passAddr, pass);
-    EEPROM.put(ipIndexAddr, 2);
-    EEPROM.commit();
-
-    Serial.print("ssid=");
-    Serial.println(newSsid);
-    Serial.print("pass=");
-    Serial.println(newPass);
-
-    EEPROM.get(ssidAddr, newSsid);
-    EEPROM.get(passAddr, newPass);
-    EEPROM.get(ssidAddr, ssid);
-    EEPROM.get(passAddr, pass); 
-    
-    Serial.print("ssid=");
-    Serial.println(newSsid);
-    Serial.print("pass=");
-    Serial.println(newPass);
-    Serial.println("EEPROM initialized!");
+    resetEEPROM();
   }
   else {
-    EEPROM.get(ssidAddr, ssid);
-    EEPROM.get(passAddr, pass); 
-    EEPROM.get(ipIndexAddr, ipIndex);
-
-    Serial.print("ssid=");
-    Serial.println(ssid);
-    Serial.print("pass=");
-    Serial.println(pass);
-    Serial.print("ipIndex=");
-    Serial.println(ipIndex);
-    Serial.println("EEPROM read!");
+    readEEPROM();
   }
 
 /*
@@ -130,6 +178,9 @@ Else,
     switch (WiFi.status())
     {
     case WL_IDLE_STATUS:
+      resetEEPROM();
+      WiFi.begin(ssid, pass);
+      break;
     case WL_CONNECTED:
     case 7:
       break;
@@ -155,8 +206,9 @@ Else,
           Serial.println(pass);
           Serial.println(ipIndex);
           // save values to EEPROM 
-          EEPROM.put(ssidAddr, ssid);
-          EEPROM.put(passAddr, pass);
+          EEPROM.put(checkAddr, 1024);
+          writeStrToEEPROM(ssidAddr, ssid);
+          writeStrToEEPROM(passAddr, pass);
           EEPROM.put(ipIndexAddr, ipIndex);
           EEPROM.commit();
           // turn off wifi hotspot
@@ -184,6 +236,13 @@ Else,
   WiFi.config(localIP, gateway, subnet);
   Serial.println(localIP);
 
+  // read from EEPROM again
+  readStrFromEEPROM(ssidAddr, &newSsid);
+  Serial.print("newSSID=");
+  Serial.println(newSsid);
+
+  delay(100);
+
   // server.removeHandler(&indexHandler);
   // server.removeHandler(&wifiHandler);
   server.reset();
@@ -199,29 +258,6 @@ void loop() {
 
 /*
 
-void writeStrToEEPROM(unsigned int addr, String str) {
-  int len = str.length(); 
-  Serial.print("len=");
-  Serial.println(len);
-  for (int i=0;i<len;i++) {
-    EEPROM.write(addr+i, str[i]);
-  }
-  EEPROM.write(addr+len, 0);
-}
-
-void readStrFromEEPROM(unsigned int addr, String str) {
-  byte ch;
-  int i = 0;
-  do
-  {
-    ch = EEPROM.read(addr+i);
-    Serial.println(ch);
-    str.setCharAt(addr+i, ch);
-    i++;
-  } while (ch);
-  Serial.print("str in funcion = ");
-  Serial.println(str);
-}
 
 
 void f1(String *str) {
