@@ -30,6 +30,47 @@ AsyncWebHandler indexHandler, wifiGetHandler, wifiPostHandler;
 unsigned long printDelay = 1000;
 unsigned long lastTimePrinted; 
 
+void writeStrToEEPROM(unsigned int addr, String str);
+void readStrFromEEPROM(unsigned int addr, String *str);
+void getWiFiEEPROMValid();
+void checkResetButton(int btn);
+void validateWiFiEEPROM();
+void resetWiFiEEPROM();
+void readWiFiEEPROM();
+void saveWiFi(AsyncWebServerRequest *request);
+void checkWiFiLoop();
+
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BTN1, INPUT_PULLUP);
+
+  // littleFS 
+  if (!LittleFS.begin()) {
+    Serial.println("An error occured while mounting LittleFS.");
+  }
+  
+  // initialize EEPROM and addresses
+  EEPROM.begin(sizeof(int) + sizeof(char) * 80 + sizeof(byte));
+  checkAddr = START_ADDR;
+  ssidAddr = checkAddr + sizeof(int);
+  passAddr = ssidAddr + sizeof(char) * 32;
+  ipIndexAddr = passAddr + sizeof(char) * 32;
+
+  getWiFiEEPROMValid();
+  checkResetButton(BTN1);
+  Serial.print(checkNum); 
+  validateWiFiEEPROM();
+
+  Serial.println("Attempting to connect to WiFi:");
+  WiFi.begin(ssid, pass);
+}
+
+void loop() {
+  checkWiFiLoop();
+}
+
+
 void writeStrToEEPROM(unsigned int addr, String str) {
   int len = str.length(); 
   const char * c_str = str.c_str();
@@ -48,6 +89,35 @@ void readStrFromEEPROM(unsigned int addr, String *str) {
     if (ch) *str += (char) ch;
     i++;
   } while (ch);
+}
+
+/*
+  read from the EEPROM. If the EEPROM contents are valid, it must be 1024.
+  If it is any other value, EEPROM contents are invalid, then the EEPROM 
+  will be set to default valid string values. 
+*/
+void getWiFiEEPROMValid() {
+  EEPROM.get(checkAddr, checkNum);
+}
+
+// reset wifi credentials if button is held LOW on power on
+void checkResetButton(int btn) {
+  // add 3 second delay to reset the EEPROM manually  
+  delay(3000);
+  if (!digitalRead(btn)) {
+    checkNum = 0;
+  }
+}
+
+void validateWiFiEEPROM() {
+  if (checkNum != 1024) {
+    Serial.println("Resetting WiFi EEPROM");
+    resetWiFiEEPROM();
+  }
+  else {
+    Serial.println("Reading WiFi EEPROM");
+    readWiFiEEPROM();
+  }
 }
 
 void resetWiFiEEPROM() {
@@ -90,50 +160,7 @@ void saveWiFi(AsyncWebServerRequest *request) {
   writeStrToEEPROM(passAddr, pass);
   EEPROM.put(ipIndexAddr, ipIndex);
   EEPROM.commit();
-  // turn off wifi hotspot
-  WiFi.softAPdisconnect(true);
-  apIP[0] = 0;
-  Serial.println("stopped softAP");
-  WiFi.begin(ssid, pass);
-  Serial.println("started WiFi");
 }
-
-void setup() {
-  Serial.begin(115200);
-  pinMode(BTN1, INPUT_PULLUP);
-
-  // littleFS 
-  if (!LittleFS.begin()) {
-    Serial.println("An error occured while mounting LittleFS.");
-  }
-  
-  // initialize EEPROM and addresses
-  EEPROM.begin(sizeof(int) + sizeof(char) * 80 + sizeof(byte));
-  checkAddr = START_ADDR;
-  ssidAddr = checkAddr + sizeof(int);
-  passAddr = ssidAddr + sizeof(char) * 32;
-  ipIndexAddr = passAddr + sizeof(char) * 32;
-
-  /*
-  read from the EEPROM. If the EEPROM contents are valid, it must be 1024.
-  If it is any other value, EEPROM contents are invalid, then the EEPROM 
-  will be set to default valid string values. 
-  */
-  EEPROM.get(checkAddr, checkNum);
-  delay(3000);
-  // reset wifi credentials if button is held LOW on power on
-  if (!digitalRead(BTN1)) {
-    checkNum = 0;
-  }
-  Serial.print(checkNum); 
-  if (checkNum != 1024) {
-    Serial.println("Resetting WiFi EEPROM");
-    resetWiFiEEPROM();
-  }
-  else {
-    Serial.println("Reading WiFi EEPROM");
-    readWiFiEEPROM();
-  }
 
 /*
 ssid not available - 1
@@ -156,12 +183,7 @@ Else,
     If the ESP connects successfully, 
       proceed with the rest of the application.
 */
-
-  Serial.println("Attempting to connect to WiFi:");
-  WiFi.begin(ssid, pass);
-}
-
-void loop() {
+void checkWiFiLoop() {
   while (WiFi.status() != WL_CONNECTED) {
     // print wifi status
     if (millis() - lastTimePrinted > printDelay) {
@@ -184,8 +206,8 @@ void loop() {
       case 7:
         break;
 
-      case WL_CONNECTED:
       // if connected 
+      case WL_CONNECTED:
         Serial.print("Connected: ");
         Serial.println(WiFi.status());
         localIP = WiFi.localIP();
@@ -208,11 +230,11 @@ void loop() {
         server.reset();
         indexHandler = server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
           request->send(LittleFS, "/index.html", String(), false);});
-        // wifiGetHandler = server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
-        //   request->send(LittleFS, "/wifi.html", String(), false);});
-        // wifiPostHandler = server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
-        //   saveWiFi(request);
-        // });
+        wifiGetHandler = server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
+          request->send(LittleFS, "/wifi.html", String(), false);});
+        wifiPostHandler = server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
+          saveWiFi(request);
+        });
         server.begin();
         break;
 
@@ -229,13 +251,18 @@ void loop() {
           request->send(LittleFS, "/wifi.html", String(), false);});
           wifiPostHandler = server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
             saveWiFi(request);
+              // turn off wifi hotspot and attempt to reconnect to the saved WiFi network
+              WiFi.softAPdisconnect(true);
+              apIP[0] = 0;
+              Serial.println("stopped softAP");
+              WiFi.begin(ssid, pass);
+              Serial.println("started WiFi");
           });
           server.begin();
       }
     }
   }
 }
-
 
 /*
 void f1(String *str) {
