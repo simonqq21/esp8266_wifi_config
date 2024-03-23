@@ -159,24 +159,64 @@ Else,
 
   Serial.println("Attempting to connect to WiFi:");
   WiFi.begin(ssid, pass);
+}
 
+void loop() {
   while (WiFi.status() != WL_CONNECTED) {
+    // print wifi status
     if (millis() - lastTimePrinted > printDelay) {
       lastTimePrinted = millis(); 
       Serial.print("not connected: ");
       Serial.println(WiFi.status());
     }
+    // service the background WiFi stack
     yield();
     switch (WiFi.status())
     {
+      // if credentials from EEPROM are invalid, reset the WiFi credentials on the 
+      // EEPROM
       case WL_IDLE_STATUS:
         resetWiFiEEPROM();
         WiFi.begin(ssid, pass);
         break;
-      case WL_CONNECTED:
+
+      // if attempting to connect
       case 7:
         break;
-    
+
+      case WL_CONNECTED:
+      // if connected 
+        Serial.print("Connected: ");
+        Serial.println(WiFi.status());
+        localIP = WiFi.localIP();
+        Serial.println(localIP);
+        localIP[3] = ipIndex;
+        gateway = localIP;
+        gateway[3] = 1;
+        Serial.print("gateway=");
+        Serial.println(gateway);
+        WiFi.config(localIP, gateway, subnet);
+        Serial.println(localIP);
+
+        // read from EEPROM again
+        readStrFromEEPROM(ssidAddr, &newSsid);
+        Serial.print("newSSID=");
+        Serial.println(newSsid);
+        delay(100);
+        // server.removeHandler(&indexHandler);
+        // server.removeHandler(&wifiHandler);
+        server.reset();
+        indexHandler = server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+          request->send(LittleFS, "/index.html", String(), false);});
+        // wifiGetHandler = server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
+        //   request->send(LittleFS, "/wifi.html", String(), false);});
+        // wifiPostHandler = server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
+        //   saveWiFi(request);
+        // });
+        server.begin();
+        break;
+
+      // if not connected due to unavailable SSID or wrong credentials
       default:
         if (apIP[0] < 1) {
           WiFi.softAP("ESP8266_wifi_config");
@@ -194,40 +234,6 @@ Else,
       }
     }
   }
-
-  Serial.print("Connected: ");
-  Serial.println(WiFi.status());
-  localIP = WiFi.localIP();
-  Serial.println(localIP);
-  localIP[3] = ipIndex;
-  gateway = localIP;
-  gateway[3] = 1;
-  Serial.print("gateway=");
-  Serial.println(gateway);
-  WiFi.config(localIP, gateway, subnet);
-  Serial.println(localIP);
-
-  // read from EEPROM again
-  readStrFromEEPROM(ssidAddr, &newSsid);
-  Serial.print("newSSID=");
-  Serial.println(newSsid);
-
-  delay(100);
-  // server.removeHandler(&indexHandler);
-  // server.removeHandler(&wifiHandler);
-  server.reset();
-  indexHandler = server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(LittleFS, "/index.html", String(), false);});
-  // wifiGetHandler = server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
-  //   request->send(LittleFS, "/wifi.html", String(), false);});
-  // wifiPostHandler = server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
-  //   saveWiFi(request);
-  });
-  server.begin();
-}
-
-void loop() {
-  // put your main code here, to run repeatedly:
 }
 
 
